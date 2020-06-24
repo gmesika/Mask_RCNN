@@ -6,14 +6,16 @@ Copyright (c) 2017 Matterport, Inc.
 Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
-
+import io
 import os
 import sys
 import random
 import itertools
 import colorsys
 
+import cv2
 import numpy as np
+from PIL import Image
 from skimage.measure import find_contours
 import matplotlib.pyplot as plt
 from matplotlib import patches,  lines
@@ -81,10 +83,13 @@ def apply_mask(image, mask, color, alpha=0.5):
 
 
 def display_instances(image, boxes, masks, class_ids, class_names,
-                      scores=None, title="",
-                      figsize=(16, 16), ax=None,
+                      scores=None,
                       show_mask=True, show_bbox=True,
-                      colors=None, captions=None):
+                      show_label=True, show_polygon=True,
+                      save_detected_fig=False,
+                      colors=None, captions=None,
+                      title="",
+                      figsize=(16, 16), ax=None):
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
     masks: [height, width, num_instances]
@@ -107,7 +112,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     # If no axis is passed, create one and automatically call show()
     auto_show = False
     if not ax:
-        _, ax = plt.subplots(1, figsize=figsize)
+        detected_fig, ax = plt.subplots(1, figsize=figsize)
         auto_show = True
 
     # Generate random colors
@@ -115,8 +120,8 @@ def display_instances(image, boxes, masks, class_ids, class_names,
 
     # Show area outside image boundaries.
     height, width = image.shape[:2]
-    ax.set_ylim(height + 10, -10)
-    ax.set_xlim(-10, width + 10)
+    #ax.set_ylim(height + 10, -10)
+    #ax.set_xlim(-10, width + 10)
     ax.axis('off')
     ax.set_title(title)
 
@@ -136,15 +141,16 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             ax.add_patch(p)
 
         # Label
-        if not captions:
-            class_id = class_ids[i]
-            score = scores[i] if scores is not None else None
-            label = class_names[class_id]
-            caption = "{} {:.3f}".format(label, score) if score else label
-        else:
-            caption = captions[i]
-        ax.text(x1, y1 + 8, caption,
-                color='w', size=11, backgroundcolor="none")
+        if show_label:
+            if not captions:
+                class_id = class_ids[i]
+                score = scores[i] if scores is not None else None
+                label = class_names[class_id]
+                caption = "{} {:.3f}".format(label, score) if score else label
+            else:
+                caption = captions[i]
+            ax.text(x1, y1 + 8, caption,
+                    color='w', size=11, backgroundcolor="none")
 
         # Mask
         mask = masks[:, :, i]
@@ -152,19 +158,50 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             masked_image = apply_mask(masked_image, mask, color)
 
         # Mask Polygon
-        # Pad to ensure proper polygons for masks that touch image edges.
-        padded_mask = np.zeros(
-            (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
-        padded_mask[1:-1, 1:-1] = mask
-        contours = find_contours(padded_mask, 0.5)
-        for verts in contours:
-            # Subtract the padding and flip (y, x) to (x, y)
-            verts = np.fliplr(verts) - 1
-            p = Polygon(verts, facecolor="none", edgecolor=color)
-            ax.add_patch(p)
+        if show_polygon:
+            # Pad to ensure proper polygons for masks that touch image edges.
+            padded_mask = np.zeros(
+                (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
+            padded_mask[1:-1, 1:-1] = mask
+            contours = find_contours(padded_mask, 0.5)
+            for verts in contours:
+                # Subtract the padding and flip (y, x) to (x, y)
+                verts = np.fliplr(verts) - 1
+                p = Polygon(verts, facecolor="none", edgecolor=color)
+                ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
     if auto_show:
-        plt.show()
+        #plt.show()
+        pass
+
+
+
+    if save_detected_fig:
+       # im.save("your_file.jpeg")
+        pass
+
+
+    #detected_fig.savefig('full_figure.png')
+    # create file-object in memory
+    file_object = io.BytesIO()
+
+    # write PNG in file-object
+    #im.save(file_object, 'PNG')
+    detected_fig.savefig(file_object, format="png", dpi=180)
+    file_object.seek(0)
+    file_object.read()
+    return file_object.getvalue()
+
+def get_img_from_fig(fig, dpi=180):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi)
+    buf.seek(0)
+    img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+    buf.close()
+    img = cv2.imdecode(img_arr, 1)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    return img
 
 
 def display_differences(image,
